@@ -54,8 +54,8 @@ def highlight_confidence(val):
 
 # --- 3. STREAMLIT UI LAYOUT ---
 
-st.title("SocioSentiment-Social Issue Analyzer 🧠")
-st.markdown("Analyze the **Sentiment** and **Emotion** of text using pre-trained AI models.")
+st.title("SocioSentiment 🧠")
+st.markdown("Analyze the **Sentiment** and **Emotion** of social issues.")
 
 # Input Layer
 user_input = st.text_area("Enter a sentence about a social issue:", height=100, placeholder="e.g., I am worried about climate change, but hopeful for the future.")
