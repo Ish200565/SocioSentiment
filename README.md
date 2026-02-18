@@ -26,3 +26,5 @@ The system displays:
 3) Confidence visualization
 4) Explainability via keyword extraction
 5) Optimized with st.cache_resource for faster performance
+
+My deployed app link =[https://sociosentiment-3kxktkrdd5bnlppxsv3zme.streamlit.app/]
