@@ -8,3 +8,8 @@ accelerate
 datasets
 streamlit
 pandas
+langdetect
+googletrans==4.0.0-rc1
+emoji
+legacy-cgi
+sentencepiece
