@@ -12,6 +12,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from langdetect import detect, LangDetectException
 from googletrans import Translator
 import emoji
+import requests
+
+
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")  # set this in your environment
+
 
 # --- 1. SETUP & MODEL LOADING ---
 # We use st.cache_resource so the models are downloaded/loaded only once
@@ -43,7 +48,7 @@ def load_models():
     return (sent_tokenizer_en, sent_model_en, 
             sent_tokenizer_multi, sent_model_multi,
             emo_tokenizer, emo_model)
-#hello abhijeet
+
 # Load models immediately
 (sent_tokenizer_en, sent_model_en, 
  sent_tokenizer_multi, sent_model_multi,
@@ -178,12 +183,48 @@ def highlight_confidence(val):
         return 'background-color: #f0e68c' # Khaki
     else:
         return 'background-color: #f08080' # Light coral
+    
+def fetch_news(query="social issues", language="en", page_size=5):
+    """Fetch latest news articles from NewsAPI."""
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        "q": query,
+        "language": language,
+        "sortBy": "publishedAt",
+        "pageSize": page_size,
+        "apiKey": NEWS_API_KEY
+    }
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+        if data.get("status") == "ok":
+            return data["articles"]
+        else:
+            st.error(f"News API error: {data.get('message')}")
+            return []
+    except Exception as e:
+        st.error(f"Failed to fetch news: {str(e)}")
+        return []
+    
 
 # --- 3. STREAMLIT UI LAYOUT ---
 
 st.title("SocioSentiment-Social Issue Analyzer 🧠")
 st.markdown("Analyze the **Sentiment** and **Emotion** of text using pre-trained AI models.")
 st.markdown("✨ **Now supports Hindi, Arabic, French, German, Italian, Portuguese & Spanish!**")
+
+# --- Sidebar News Section ---
+st.sidebar.subheader("📰 Latest News on Social Issues")
+
+if st.sidebar.button("Fetch News"):
+    with st.spinner("Fetching latest news..."):
+        articles = fetch_news(query="climate change OR poverty OR healthcare", language="en", page_size=5)
+        if articles:
+            for article in articles:
+                st.sidebar.markdown(f"**{article['title']}**")
+                st.sidebar.write(article['description'])
+                st.sidebar.markdown(f"[Read more]({article['url']})")
+                st.sidebar.write("---")
 
 # Input Layer
 user_input = st.text_area("Enter a sentence about a social issue:", height=100, 
@@ -358,3 +399,6 @@ if st.button("Analyze Text"):
             
     else:
         st.warning("Please enter some text to analyze.")
+
+
+
