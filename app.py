@@ -16,7 +16,7 @@ import requests
 
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")  # set this in your environment
-
+# NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 
 # --- 1. SETUP & MODEL LOADING ---
 # We use st.cache_resource so the models are downloaded/loaded only once
@@ -205,7 +205,7 @@ def fetch_news(query="social issues", language="en", page_size=5):
     except Exception as e:
         st.error(f"Failed to fetch news: {str(e)}")
         return []
-    
+
 
 # --- 3. STREAMLIT UI LAYOUT ---
 
@@ -216,20 +216,19 @@ st.markdown("✨ **Now supports Hindi, Arabic, French, German, Italian, Portugue
 # --- Sidebar News Section ---
 st.sidebar.subheader("📰 Latest News on Social Issues")
 
-if st.sidebar.button("Fetch News"):
-    with st.spinner("Fetching latest news..."):
-        articles = fetch_news(query="climate change OR poverty OR healthcare", language="en", page_size=5)
-        if articles:
-            for article in articles:
-                st.sidebar.markdown(f"**{article['title']}**")
-                st.sidebar.write(article['description'])
-                st.sidebar.markdown(f"[Read more]({article['url']})")
-                st.sidebar.write("---")
+articles = fetch_news(query="climate change OR poverty OR healthcare", language="en", page_size=5)
 
 # Input Layer
-user_input = st.text_area("Enter a sentence about a social issue:", height=100, 
-                          placeholder="e.g., I am worried about climate change, but hopeful for the future.\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।")
+if articles:
+    titles = [article['title'] for article in articles]
+    selected_title = st.sidebar.selectbox("Select a headline to analyze:", titles)
 
+user_input = st.text_area(
+    "Enter a sentence about a social issue:",
+    value=selected_title if selected_title else "",
+    height=100,
+    placeholder="e.g., I am worried about climate change, but hopeful for the future.\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।"
+)
 # Advanced options
 with st.expander("⚙️ Advanced Options"):
     expand_abbrev = st.checkbox("Expand abbreviations (u→you, govt→government)", value=True)

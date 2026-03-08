@@ -27,4 +27,8 @@ The system displays:
 4) Explainability via keyword extraction
 5) Optimized with st.cache_resource for faster performance
 
+
+- “This app requires a NewsAPI key stored in an environment variable NEWS_API_KEY.”
+
+
 My deployed app link =[https://sociosentiment-3kxktkrdd5bnlppxsv3zme.streamlit.app/]
