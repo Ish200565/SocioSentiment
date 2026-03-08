@@ -13,7 +13,7 @@ from langdetect import detect, LangDetectException
 from googletrans import Translator
 import emoji
 import requests
-
+import datetime
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")  # set this in your environment
 # NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
@@ -388,6 +388,7 @@ if st.button("Analyze Text"):
             summary_df = pd.DataFrame(summary_data)
             st.dataframe(summary_df.style.applymap(highlight_confidence, subset=["Confidence (%)"]))
             
+
             # Technical Info Expander
             with st.expander("🔧 Technical Details"):
                 st.write(f"**Input Language:** {lang_name}")
@@ -395,6 +396,40 @@ if st.button("Analyze Text"):
                 st.write(f"**Cleaned Input:** {cleaned_input}")
                 st.write(f"**Abbreviations Expanded:** {'Yes' if expand_abbrev else 'No'}")
                 st.write(f"**Emojis Converted:** {'Yes' if handle_emoji else 'No'}")
+
+
+            # --- REPORT GENERATION & DOWNLOAD BUTTON ---
+            # Format timestamp for readability
+            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            # Limit confidence to two decimals
+            sent_conf = round(conf_sent.item()*100, 2)
+            emo_conf = round(conf_emo.item()*100, 2)
+            # Use semicolons for keywords
+            keywords_str = "; ".join(keywords[:5])
+
+            report_data = {
+                "Input Text": [user_input],
+                "Detected Language": [lang_name],
+                "Sentiment Prediction": [sentiment_pred],
+                "Sentiment Confidence (%)": [sent_conf],
+                "Emotion Prediction": [emotion_pred.capitalize()],
+                "Emotion Confidence (%)": [emo_conf],
+                "Top Keywords": [keywords_str],
+                "Was Translated": ["Yes" if was_translated else "No"],
+                "Timestamp": [timestamp_str]
+            }
+
+            report_df = pd.DataFrame(report_data)
+
+            csv = report_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Analysis Report (CSV)",
+                data=csv,
+                file_name="socio_sentiment_report.csv",
+                mime="text/csv"
+            )
+
+            
             
     else:
         st.warning("Please enter some text to analyze.")
