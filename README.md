@@ -31,6 +31,6 @@ The system displays:
 - Multilingual Support → Language detection for German, Portuguese, French, Hinglish
 - Automatic Translation → If another language is detected, the text is translated to English for analysis
 
-🌐 Deployment
-This is a temporary deployed link: https://lnkd.in/dNDvE-A2
-👉 SocioSentiment App
+🌐 SocioSentiment App Deployment
+This is a temporary deployed link: https://sociosentiment-3kxktkrdd5bnlppxsv3zme.streamlit.app/
+
