@@ -1,10 +1,21 @@
 import os
+HISTORY_FILE = "history.csv"
+
+def log_analysis(sentiment):
+    import pandas as pd
+    if not os.path.exists(HISTORY_FILE):
+        df = pd.DataFrame(columns=["sentiment"])
+        df.to_csv(HISTORY_FILE, index=False)
+    df = pd.read_csv(HISTORY_FILE)
+    df = pd.concat([df, pd.DataFrame([{"sentiment": sentiment.lower()}])], ignore_index=True)
+    df.to_csv(HISTORY_FILE, index=False)
 import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st
+
 import torch
 from torch.nn.functional import softmax
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -205,7 +216,7 @@ def fetch_news(query="social issues", language="en", page_size=5):
     except Exception as e:
         st.error(f"Failed to fetch news: {str(e)}")
         return []
-
+   
 
 # --- 3. STREAMLIT UI LAYOUT ---
 
@@ -292,6 +303,9 @@ if st.button("Analyze Text"):
             # Labels for sentiment models
             sentiment_labels = ["Negative", "Neutral", "Positive"]
             sentiment_pred = sentiment_labels[sent_idx.item()]
+
+            # Log analysis result for dashboard
+            log_analysis(sentiment_pred)
             
             # --- EMOTION PREDICTION ---
             # Use already translated text if available, otherwise translate
@@ -433,6 +447,19 @@ if st.button("Analyze Text"):
             
     else:
         st.warning("Please enter some text to analyze.")
+
+# --- STATS DASHBOARD ---
+
+st.divider()
+st.header("Analysis Stats Dashboard")
+if os.path.exists(HISTORY_FILE):
+    df_hist = pd.read_csv(HISTORY_FILE)
+    total_analyses = len(df_hist)
+    sentiment_counts = df_hist["sentiment"].value_counts().reindex(["positive", "neutral", "negative"], fill_value=0)
+    st.metric("Total Analyses", total_analyses)
+    st.bar_chart(sentiment_counts)
+else:
+    st.info("No analyses have been logged yet.")
 
 
 
