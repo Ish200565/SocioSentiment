@@ -9,12 +9,14 @@ def log_analysis(sentiment):
     df = pd.read_csv(HISTORY_FILE)
     df = pd.concat([df, pd.DataFrame([{"sentiment": sentiment.lower()}])], ignore_index=True)
     df.to_csv(HISTORY_FILE, index=False)
+
 import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st
+import time
 
 import torch
 from torch.nn.functional import softmax
@@ -26,32 +28,24 @@ import emoji
 import requests
 import datetime
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY")  # set this in your environment
-# NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
+# Must be the first Streamlit command
+st.set_page_config(page_title="SocioSentiment", layout="wide")
+
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 # --- 1. SETUP & MODEL LOADING ---
-# We use st.cache_resource so the models are downloaded/loaded only once
 @st.cache_resource
 def load_models():
     print("Loading pre-trained models... please wait.")
     
-    # --- ENGLISH SENTIMENT MODEL ---
-    # Model: cardiffnlp/twitter-roberta-base-sentiment
-    # Labels: 0 -> Negative, 1 -> Neutral, 2 -> Positive
     sent_model_name_en = "cardiffnlp/twitter-roberta-base-sentiment"
     sent_tokenizer_en = AutoTokenizer.from_pretrained(sent_model_name_en)
     sent_model_en = AutoModelForSequenceClassification.from_pretrained(sent_model_name_en)
 
-    # --- MULTILINGUAL SENTIMENT MODEL ---
-    # Model: cardiffnlp/twitter-xlm-roberta-base-sentiment
-    # Supports: Arabic, English, French, German, Hindi, Italian, Portuguese, Spanish
     sent_model_name_multi = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
     sent_tokenizer_multi = AutoTokenizer.from_pretrained(sent_model_name_multi)
     sent_model_multi = AutoModelForSequenceClassification.from_pretrained(sent_model_name_multi)
 
-    # --- EMOTION MODEL (English) ---
-    # Model: j-hartmann/emotion-english-distilroberta-base
-    # Labels: anger, disgust, fear, joy, neutral, sadness, surprise
     emo_model_name = "j-hartmann/emotion-english-distilroberta-base"
     emo_tokenizer = AutoTokenizer.from_pretrained(emo_model_name)
     emo_model = AutoModelForSequenceClassification.from_pretrained(emo_model_name)
@@ -60,17 +54,13 @@ def load_models():
             sent_tokenizer_multi, sent_model_multi,
             emo_tokenizer, emo_model)
 
-# Load models immediately
 (sent_tokenizer_en, sent_model_en, 
  sent_tokenizer_multi, sent_model_multi,
  emo_tokenizer, emo_model) = load_models()
 
-# Initialize translator
 translator = Translator()
 
 # --- 2. HELPER FUNCTIONS ---
-
-# Common abbreviations/slang dictionary
 ABBREVIATIONS = {
     "u": "you", "ur": "your", "r": "are", "y": "why",
     "ppl": "people", "govt": "government", "gov": "government",
@@ -86,19 +76,16 @@ ABBREVIATIONS = {
     "abt": "about", "rn": "right now", "smh": "shaking my head",
     "lol": "laughing", "lmao": "laughing hard", "rofl": "laughing",
     "brb": "be right back", "gtg": "got to go",
-    # Hindi romanized common words
     "kya": "what", "hai": "is", "nahi": "no", "haan": "yes",
     "accha": "good", "theek": "okay", "bahut": "very",
 }
 
-# Supported languages for multilingual sentiment model
 SUPPORTED_LANGUAGES = {
     'en': 'English', 'hi': 'Hindi', 'ar': 'Arabic', 
     'fr': 'French', 'de': 'German', 'it': 'Italian',
     'pt': 'Portuguese', 'es': 'Spanish'
 }
 
-# Common Hinglish/Romanized Hindi words for detection
 HINGLISH_WORDS = {
     'kya', 'hai', 'nahi', 'haan', 'acha', 'accha', 'theek', 'thik', 'bahut', 
     'bura', 'acha', 'kaise', 'kaisa', 'kyun', 'kyu', 'kab', 'kahan', 'yaar',
@@ -119,24 +106,19 @@ HINGLISH_WORDS = {
 }
 
 def detect_language(text):
-    """Detect language of input text."""
     try:
-        lang = detect(text)
-        return lang
+        return detect(text)
     except LangDetectException:
-        return 'en'  # Default to English if detection fails
+        return 'en'
 
 def is_hinglish(text):
-    """Detect if text is Hinglish (Hindi written in Roman script)."""
     words = text.lower().split()
     hindi_word_count = sum(1 for word in words if word.strip('.,!?') in HINGLISH_WORDS)
-    # If more than 20% of words are Hindi, consider it Hinglish
     if len(words) > 0 and (hindi_word_count / len(words)) >= 0.2:
         return True
     return False
 
 def translate_to_english(text, source_lang):
-    """Translate text to English for emotion analysis."""
     try:
         if source_lang == 'en':
             return text, False
@@ -147,11 +129,9 @@ def translate_to_english(text, source_lang):
         return text, False
 
 def convert_emojis(text):
-    """Convert emojis to their text description."""
     return emoji.demojize(text, delimiters=(" ", " "))
 
 def expand_abbreviations(text):
-    """Expand common abbreviations and slang."""
     words = text.split()
     expanded = []
     for word in words:
@@ -163,40 +143,24 @@ def expand_abbreviations(text):
     return ' '.join(expanded)
 
 def clean_text(text, expand_abbrev=True, handle_emoji=True):
-    """Enhanced text cleaning with abbreviation expansion and emoji handling."""
-    # Convert emojis to text
     if handle_emoji:
         text = convert_emojis(text)
-    
-    # Remove URLs
     text = re.sub(r"http\S+|www\S+|https\S+", '', text)
-    
-    # Remove Twitter handles but keep the text after @
     text = re.sub(r'\@\w+', '', text)
-    
-    # Remove hashtag symbol but keep the word
     text = re.sub(r'#(\w+)', r'\1', text)
-    
-    # Expand abbreviations
     if expand_abbrev:
         text = expand_abbreviations(text)
-    
-    # Remove extra whitespace
-    text = ' '.join(text.split())
-    
-    return text.strip()
+    return ' '.join(text.split()).strip()
 
 def highlight_confidence(val):
-    """Color code the confidence table based on score."""
     if val >= 70:
-        return 'background-color: #90ee90' # Light green
+        return 'background-color: #90ee90'
     elif val >= 40:
-        return 'background-color: #f0e68c' # Khaki
+        return 'background-color: #f0e68c'
     else:
-        return 'background-color: #f08080' # Light coral
+        return 'background-color: #f08080'
     
 def fetch_news(query="social issues", language="en", page_size=5):
-    """Fetch latest news articles from NewsAPI."""
     url = "https://newsapi.org/v2/everything"
     params = {
         "q": query,
@@ -210,256 +174,351 @@ def fetch_news(query="social issues", language="en", page_size=5):
         data = response.json()
         if data.get("status") == "ok":
             return data["articles"]
-        else:
-            st.error(f"News API error: {data.get('message')}")
-            return []
-    except Exception as e:
-        st.error(f"Failed to fetch news: {str(e)}")
-        return []
-   
+    except:
+        pass
+    return []
+
+# --- CORE PROCESSING FUNCTION ---
+def perform_analysis(text, expand_abbrev=True, handle_emoji=True):
+    cleaned_input = clean_text(text, expand_abbrev=expand_abbrev, handle_emoji=handle_emoji)
+    
+    detected_lang = detect_language(cleaned_input)
+    hinglish_detected = is_hinglish(cleaned_input)
+    
+    if hinglish_detected:
+        detected_lang = 'hi-latn'
+        lang_name = "Hinglish (Hindi in Roman script)"
+        is_english = False
+        is_supported = True
+    else:
+        lang_name = SUPPORTED_LANGUAGES.get(detected_lang, f"Other ({detected_lang})")
+        is_english = detected_lang == 'en'
+        is_supported = detected_lang in SUPPORTED_LANGUAGES
+    
+    text_for_analysis = cleaned_input
+    was_translated_for_sentiment = False
+    
+    if hinglish_detected or (not is_english and is_supported):
+        try:
+            src_lang = 'hi' if hinglish_detected else detected_lang
+            result = translator.translate(cleaned_input, src=src_lang, dest='en')
+            text_for_analysis = result.text
+            was_translated_for_sentiment = True
+        except:
+            text_for_analysis = cleaned_input
+    
+    # Sentiment
+    if was_translated_for_sentiment or is_english:
+        sent_inputs = sent_tokenizer_en(text_for_analysis, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            sent_outputs = sent_model_en(**sent_inputs)
+        model_used_sent = "English (cardiffnlp/twitter-roberta-base-sentiment)"
+    else:
+        sent_inputs = sent_tokenizer_multi(cleaned_input, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            sent_outputs = sent_model_multi(**sent_inputs)
+        model_used_sent = "Multilingual (cardiffnlp/twitter-xlm-roberta-base-sentiment)"
+        
+    sent_probs = softmax(sent_outputs.logits, dim=1)
+    conf_sent, sent_idx = torch.max(sent_probs, dim=1)
+    sentiment_labels = ["Negative", "Neutral", "Positive"]
+    sentiment_pred = sentiment_labels[sent_idx.item()]
+    
+    # Emotion
+    if was_translated_for_sentiment:
+        text_for_emotion = text_for_analysis
+        was_translated = True
+    elif not is_english:
+        text_for_emotion, was_translated = translate_to_english(cleaned_input, detected_lang)
+    else:
+        text_for_emotion = cleaned_input
+        was_translated = False
+    
+    emo_inputs = emo_tokenizer(text_for_emotion, return_tensors="pt", truncation=True, max_length=512)
+    with torch.no_grad():
+        emo_outputs = emo_model(**emo_inputs)
+        
+    emo_probs = softmax(emo_outputs.logits, dim=1)
+    conf_emo, emo_idx = torch.max(emo_probs, dim=1)
+    emotion_labels = list(emo_model.config.id2label.values())
+    emotion_pred = emotion_labels[emo_idx.item()]
+    
+    # Keywords
+    keyword_text = text_for_emotion if was_translated else cleaned_input
+    vectorizer = TfidfVectorizer(stop_words="english")
+    try:
+        vectorizer.fit_transform([keyword_text])
+        keywords = vectorizer.get_feature_names_out()
+    except:
+        keywords = ["(Text too short)"]
+        
+    return {
+        "text_original": text,
+        "text_cleaned": cleaned_input,
+        "text_translated": text_for_emotion if was_translated else "",
+        "lang_detected": lang_name,
+        "was_translated": was_translated,
+        "is_supported": is_supported,
+        "sentiment": sentiment_pred,
+        "sentiment_conf": conf_sent.item() * 100,
+        "sentiment_probs": sent_probs.detach().numpy()[0],
+        "sentiment_labels": sentiment_labels,
+        "model_used_sent": model_used_sent,
+        "emotion": emotion_pred.capitalize(),
+        "emotion_conf": conf_emo.item() * 100,
+        "emotion_probs": emo_probs.detach().numpy()[0],
+        "emotion_labels": emotion_labels,
+        "keywords": keywords,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
 
 # --- 3. STREAMLIT UI LAYOUT ---
 
-st.title("SocioSentiment-Social Issue Analyzer 🧠")
+st.title("SocioSentiment: Social Issue Analyzer 🧠")
 st.markdown("Analyze the **Sentiment** and **Emotion** of text using pre-trained AI models.")
-st.markdown("✨ **Now supports Hindi, Arabic, French, German, Italian, Portuguese & Spanish!**")
 
 # --- Sidebar News Section ---
 st.sidebar.subheader("📰 Latest News on Social Issues")
-
 articles = fetch_news(query="climate change OR poverty OR healthcare", language="en", page_size=5)
-
-# Input Layer
+selected_title = ""
 if articles:
     titles = [article['title'] for article in articles]
     selected_title = st.sidebar.selectbox("Select a headline to analyze:", titles)
 
-user_input = st.text_area(
-    "Enter a sentence about a social issue:",
-    value=selected_title if selected_title else "",
-    height=100,
-    placeholder="e.g., I am worried about climate change, but hopeful for the future.\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।"
-)
-# Advanced options
-with st.expander("⚙️ Advanced Options"):
-    expand_abbrev = st.checkbox("Expand abbreviations (u→you, govt→government)", value=True)
-    handle_emoji = st.checkbox("Convert emojis to text", value=True)
+# UI Tabs
+tab_single, tab_batch, tab_dash = st.tabs(["📝 Single Analysis", "📂 Batch Analysis", "📊 Dashboard"])
 
-if st.button("Analyze Text"):
-    if user_input:
-        with st.spinner('Analyzing...'):
-            # Preprocessing
-            cleaned_input = clean_text(user_input, expand_abbrev=expand_abbrev, handle_emoji=handle_emoji)
-            
-            # --- LANGUAGE DETECTION ---
-            detected_lang = detect_language(cleaned_input)
-            
-            # --- HINGLISH DETECTION ---
-            # Check if text is Hinglish (Hindi in Roman script) even if detected as English
-            hinglish_detected = is_hinglish(cleaned_input)
-            
-            if hinglish_detected:
-                detected_lang = 'hi-latn'  # Hindi in Latin script
-                lang_name = "Hinglish (Hindi in Roman script)"
-                is_english = False
-                is_supported = True
-            else:
-                lang_name = SUPPORTED_LANGUAGES.get(detected_lang, f"Other ({detected_lang})")
-                is_english = detected_lang == 'en'
-                is_supported = detected_lang in SUPPORTED_LANGUAGES
-            
-            # --- TRANSLATE IF HINGLISH or NON-ENGLISH ---
-            text_for_analysis = cleaned_input
-            was_translated_for_sentiment = False
-            
-            if hinglish_detected or (not is_english and is_supported):
-                # Translate to English for better analysis
-                try:
-                    src_lang = 'hi' if hinglish_detected else detected_lang
-                    result = translator.translate(cleaned_input, src=src_lang, dest='en')
-                    text_for_analysis = result.text
-                    was_translated_for_sentiment = True
-                except Exception as e:
-                    st.warning(f"Translation failed, using original text: {str(e)}")
-                    text_for_analysis = cleaned_input
-            
-            # --- SENTIMENT PREDICTION ---
-            if was_translated_for_sentiment or is_english:
-                # Use English model on translated/English text for best accuracy
-                sent_inputs = sent_tokenizer_en(text_for_analysis, return_tensors="pt", truncation=True, max_length=512)
-                with torch.no_grad():
-                    sent_outputs = sent_model_en(**sent_inputs)
-                model_used_sent = "English (cardiffnlp/twitter-roberta-base-sentiment)"
-            else:
-                # Use multilingual model for non-English that wasn't translated
-                sent_inputs = sent_tokenizer_multi(cleaned_input, return_tensors="pt", truncation=True, max_length=512)
-                with torch.no_grad():
-                    sent_outputs = sent_model_multi(**sent_inputs)
-                model_used_sent = "Multilingual (cardiffnlp/twitter-xlm-roberta-base-sentiment)"
+with tab_single:
+    st.subheader("Analyze Single Text")
+    user_input = st.text_area(
+        "Enter a sentence about a social issue:",
+        value=selected_title if selected_title else "",
+        height=100,
+        placeholder="e.g., I am worried about climate change, but hopeful for the future.\\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।"
+    )
+    
+    with st.expander("⚙️ Advanced Options"):
+        expand_abbrev_single = st.checkbox("Expand abbreviations (u→you, govt→government)", value=True, key="ea_single")
+        handle_emoji_single = st.checkbox("Convert emojis to text", value=True, key="he_single")
+
+    if st.button("Analyze Text", type="primary"):
+        if user_input.strip():
+            with st.spinner('Analyzing...'):
+                result = perform_analysis(user_input, expand_abbrev=expand_abbrev_single, handle_emoji=handle_emoji_single)
                 
-            sent_probs = softmax(sent_outputs.logits, dim=1)
-            conf_sent, sent_idx = torch.max(sent_probs, dim=1)
-            
-            # Labels for sentiment models
-            sentiment_labels = ["Negative", "Neutral", "Positive"]
-            sentiment_pred = sentiment_labels[sent_idx.item()]
-
-            # Log analysis result for dashboard
-            log_analysis(sentiment_pred)
-            
-            # --- EMOTION PREDICTION ---
-            # Use already translated text if available, otherwise translate
-            if was_translated_for_sentiment:
-                text_for_emotion = text_for_analysis
-                was_translated = True
-            elif not is_english:
-                text_for_emotion, was_translated = translate_to_english(cleaned_input, detected_lang)
-            else:
-                text_for_emotion = cleaned_input
-                was_translated = False
-            
-            # Tokenize for emotion model
-            emo_inputs = emo_tokenizer(text_for_emotion, return_tensors="pt", truncation=True, max_length=512)
-            
-            with torch.no_grad():
-                emo_outputs = emo_model(**emo_inputs)
+                log_analysis(result["sentiment"])
                 
-            emo_probs = softmax(emo_outputs.logits, dim=1)
-            conf_emo, emo_idx = torch.max(emo_probs, dim=1)
+                # Language Info
+                st.divider()
+                lang_col1, lang_col2 = st.columns(2)
+                with lang_col1:
+                    st.info(f"🌐 **Detected Language:** {result['lang_detected']}")
+                with lang_col2:
+                    if result['was_translated']:
+                        st.info(f"🔄 **Translated for emotion analysis**")
+                    elif not result['is_supported']:
+                        st.warning(f"⚠️ Language may not be fully supported")
+                
+                # Metrics Row
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(label="Predicted Sentiment", value=result["sentiment"], delta=f"{result['sentiment_conf']:.1f}% Conf.")
+                with col2:
+                    st.metric(label="Predicted Emotion", value=result["emotion"], delta=f"{result['emotion_conf']:.1f}% Conf.")
+
+                st.write(f"**Keywords detected:** {', '.join(result['keywords'][:5])}")
+                
+                if result['was_translated']:
+                    with st.expander("📝 View Translated Text"):
+                        st.write(f"**Original:** {result['text_cleaned']}")
+                        st.write(f"**Translated:** {result['text_translated']}")
+
+                # Visualizations
+                st.divider()
+                st.subheader("Confidence Distribution")
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+                sent_df = pd.DataFrame({'Label': result['sentiment_labels'], 'Score': result['sentiment_probs']})
+                sns.barplot(x='Label', y='Score', data=sent_df, ax=ax1, palette="viridis")
+                ax1.set_title("Sentiment Probabilities")
+                ax1.set_ylim(0, 1)
+
+                emo_df = pd.DataFrame({'Label': result['emotion_labels'], 'Score': result['emotion_probs']})
+                sns.barplot(x='Label', y='Score', data=emo_df, ax=ax2, palette="magma")
+                ax2.set_title("Emotion Probabilities")
+                ax2.set_ylim(0, 1)
+                ax2.tick_params(axis='x', rotation=45) 
+
+                st.pyplot(fig)
+                
+                # Summary Table
+                st.divider()
+                st.subheader("Detailed Breakdown")
+                summary_data = {
+                    "Type": ["Sentiment", "Emotion"],
+                    "Prediction": [result["sentiment"], result["emotion"]],
+                    "Confidence (%)": [result['sentiment_conf'], result['emotion_conf']],
+                    "Model Used": [result['model_used_sent'], "j-hartmann/emotion-english-distilroberta-base"]
+                }
+                st.dataframe(pd.DataFrame(summary_data).style.applymap(highlight_confidence, subset=["Confidence (%)"]))
+                
+                with st.expander("🔧 Technical Details"):
+                    st.write(f"**Cleaned Input:** {result['text_cleaned']}")
+                    st.write(f"**Abbreviations Expanded:** {'Yes' if expand_abbrev_single else 'No'}")
+
+                # Download Single Report
+                report_data = {
+                    "Input Text": [result["text_original"]],
+                    "Detected Language": [result["lang_detected"]],
+                    "Sentiment": [result["sentiment"]],
+                    "Sentiment Confidence (%)": [round(result["sentiment_conf"], 2)],
+                    "Emotion": [result["emotion"]],
+                    "Emotion Confidence (%)": [round(result["emotion_conf"], 2)],
+                    "Top Keywords": ["; ".join(result["keywords"][:5])],
+                    "Timestamp": [result["timestamp"]]
+                }
+                csv = pd.DataFrame(report_data).to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Download Analysis Report (CSV)",
+                    data=csv,
+                    file_name="socio_sentiment_report.csv",
+                    mime="text/csv"
+                )
+        else:
+            st.warning("Please enter some text to analyze.")
+
+with tab_batch:
+    st.subheader("📂 Batch Upload & Analysis")
+    st.write("Upload a CSV file (with a specific text column) or a TXT file (one entry per line) to analyze multiple texts efficiently.")
+    
+    uploaded_file = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"])
+    
+    if uploaded_file is not None:
+        file_ext = uploaded_file.name.split('.')[-1].lower()
+        
+        # Load Data
+        df_batch = None
+        text_column = None
+        
+        if file_ext == "csv":
+            df_batch = pd.read_csv(uploaded_file)
+            st.write("### Data Preview")
+            st.dataframe(df_batch.head())
+            text_column = st.selectbox("Select the column containing the text to analyze:", df_batch.columns)
+        elif file_ext == "txt":
+            content = uploaded_file.getvalue().decode("utf-8")
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            df_batch = pd.DataFrame({"Text": lines})
+            text_column = "Text"
+            st.write(f"Found {len(lines)} lines of text.")
+            st.dataframe(df_batch.head())
+
+        with st.expander("⚙️ Advanced Options"):
+            expand_abbrev_batch = st.checkbox("Expand abbreviations", value=True, key="ea_batch")
+            handle_emoji_batch = st.checkbox("Convert emojis to text", value=True, key="he_batch")
+
+        if st.button("Start Batch Analysis", type="primary"):
+            if df_batch is not None and text_column is not None:
+                texts = df_batch[text_column].tolist()
+                results = []
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                start_time = time.time()
+                
+                for idx, text in enumerate(texts):
+                    # Update status
+                    status_text.text(f"Analyzing {idx+1}/{len(texts)}: {str(text)[:50]}...")
+                    
+                    # Ensure text is string
+                    if pd.isna(text):
+                        text = ""
+                    text_str = str(text)
+                    
+                    if not text_str.strip():
+                        continue
+                        
+                    try:
+                        res = perform_analysis(text_str, expand_abbrev=expand_abbrev_batch, handle_emoji=handle_emoji_batch)
+                        log_analysis(res["sentiment"])
+                        
+                        results.append({
+                            "Original Text": res["text_original"],
+                            "Language": res["lang_detected"],
+                            "Sentiment": res["sentiment"],
+                            "Sentiment Confidence": round(res["sentiment_conf"], 2),
+                            "Emotion": res["emotion"],
+                            "Emotion Confidence": round(res["emotion_conf"], 2),
+                            "Keywords": ", ".join(res["keywords"][:3])
+                        })
+                    except Exception as e:
+                        st.error(f"Error processing text on row {idx+1}: {e}")
+                    
+                    # Update progress
+                    progress_bar.progress((idx + 1) / len(texts))
+                
+                end_time = time.time()
+                
+                status_text.text(f"✅ Analysis complete in {round(end_time - start_time, 1)} seconds!")
+                
+                # Display Results
+                if results:
+                    results_df = pd.DataFrame(results)
+                    st.success("Batch Analysis Completed!")
+                    st.dataframe(results_df)
+
+                    # Visualization for batch
+                    st.subheader("Batch Results Summary")
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        st.write("Sentiment Distribution")
+                        st.bar_chart(results_df['Sentiment'].value_counts())
+                    with col_b2:
+                        st.write("Emotion Distribution")
+                        st.bar_chart(results_df['Emotion'].value_counts())
+
+                    # Merging with original data if CSV
+                    if file_ext == "csv":
+                        final_df = pd.concat([df_batch, results_df.drop(columns=["Original Text"])], axis=1)
+                    else:
+                        final_df = results_df
+
+                    csv_b = final_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="📥 Download Batch Results (CSV)",
+                        data=csv_b,
+                        file_name=f"batch_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+
+with tab_dash:
+    st.subheader("📊 Analysis Stats Dashboard")
+    st.write("Historical data of all tracked sentiments.")
+    
+    if os.path.exists(HISTORY_FILE):
+        df_hist = pd.read_csv(HISTORY_FILE)
+        if not df_hist.empty:
+            total_analyses = len(df_hist)
+            sentiment_counts = df_hist["sentiment"].value_counts().reindex(["positive", "neutral", "negative"], fill_value=0)
             
-            # Get labels directly from the model config
-            emotion_labels = list(emo_model.config.id2label.values())
-            emotion_pred = emotion_labels[emo_idx.item()]
-
-            # --- KEYWORD EXTRACTION ---
-            # Use translated text for keywords if available
-            keyword_text = text_for_emotion if was_translated else cleaned_input
-            vectorizer = TfidfVectorizer(stop_words="english")
-            try:
-                vectorizer.fit_transform([keyword_text])
-                keywords = vectorizer.get_feature_names_out()
-            except:
-                keywords = ["(Text too short)"]
-
-            # --- DISPLAY RESULTS ---
+            st.metric("Total Overall Analyses Logged", total_analyses)
             
-            # Language Info
-            st.divider()
-            lang_col1, lang_col2 = st.columns(2)
-            with lang_col1:
-                st.info(f"🌐 **Detected Language:** {lang_name}")
-            with lang_col2:
-                if was_translated:
-                    st.info(f"🔄 **Translated for emotion analysis**")
-                elif not is_supported and not is_english:
-                    st.warning(f"⚠️ Language may not be fully supported")
+            fig_hist, ax_hist = plt.subplots(figsize=(8, 4))
+            sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values, ax=ax_hist, palette=["#2ecc71", "#95a5a6", "#e74c3c"])
+            ax_hist.set_title("Historical Sentiment Distribution")
+            ax_hist.set_ylabel("Count")
+            st.pyplot(fig_hist)
             
-            # Metrics Row
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(label="Predicted Sentiment", value=sentiment_pred, delta=f"{conf_sent.item()*100:.1f}% Conf.")
-            with col2:
-                st.metric(label="Predicted Emotion", value=emotion_pred.capitalize(), delta=f"{conf_emo.item()*100:.1f}% Conf.")
-
-            st.write(f"**Keywords detected:** {', '.join(keywords[:5])}")
-            
-            # Show translated text if applicable
-            if was_translated:
-                with st.expander("📝 View Translated Text"):
-                    st.write(f"**Original:** {cleaned_input}")
-                    st.write(f"**Translated:** {text_for_emotion}")
-
-            # --- VISUALIZATION ---
-            st.divider()
-            st.subheader("Confidence Distribution")
-            
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-            # Sentiment Chart
-            sent_df = pd.DataFrame({'Label': sentiment_labels, 'Score': sent_probs.detach().numpy()[0]})
-            sns.barplot(x='Label', y='Score', data=sent_df, ax=ax1, palette="viridis")
-            ax1.set_title("Sentiment Probabilities")
-            ax1.set_ylim(0, 1)
-
-            # Emotion Chart
-            emo_df = pd.DataFrame({'Label': emotion_labels, 'Score': emo_probs.detach().numpy()[0]})
-            sns.barplot(x='Label', y='Score', data=emo_df, ax=ax2, palette="magma")
-            ax2.set_title("Emotion Probabilities")
-            ax2.set_ylim(0, 1)
-            ax2.tick_params(axis='x', rotation=45) # Rotate emotion labels for readability
-
-            st.pyplot(fig)
-            
-            # --- SUMMARY TABLE ---
-            st.divider()
-            st.subheader("Detailed Breakdown")
-            summary_data = {
-                "Type": ["Sentiment", "Emotion"],
-                "Prediction": [sentiment_pred, emotion_pred.capitalize()],
-                "Confidence (%)": [conf_sent.item()*100, conf_emo.item()*100],
-                "Model Used": [model_used_sent, "j-hartmann/emotion-english-distilroberta-base"]
-            }
-            summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df.style.applymap(highlight_confidence, subset=["Confidence (%)"]))
-            
-
-            # Technical Info Expander
-            with st.expander("🔧 Technical Details"):
-                st.write(f"**Input Language:** {lang_name}")
-                st.write(f"**Text was translated:** {'Yes' if was_translated else 'No'}")
-                st.write(f"**Cleaned Input:** {cleaned_input}")
-                st.write(f"**Abbreviations Expanded:** {'Yes' if expand_abbrev else 'No'}")
-                st.write(f"**Emojis Converted:** {'Yes' if handle_emoji else 'No'}")
-
-
-            # --- REPORT GENERATION & DOWNLOAD BUTTON ---
-            # Format timestamp for readability
-            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            # Limit confidence to two decimals
-            sent_conf = round(conf_sent.item()*100, 2)
-            emo_conf = round(conf_emo.item()*100, 2)
-            # Use semicolons for keywords
-            keywords_str = "; ".join(keywords[:5])
-
-            report_data = {
-                "Input Text": [user_input],
-                "Detected Language": [lang_name],
-                "Sentiment Prediction": [sentiment_pred],
-                "Sentiment Confidence (%)": [sent_conf],
-                "Emotion Prediction": [emotion_pred.capitalize()],
-                "Emotion Confidence (%)": [emo_conf],
-                "Top Keywords": [keywords_str],
-                "Was Translated": ["Yes" if was_translated else "No"],
-                "Timestamp": [timestamp_str]
-            }
-
-            report_df = pd.DataFrame(report_data)
-
-            csv = report_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Download Analysis Report (CSV)",
-                data=csv,
-                file_name="socio_sentiment_report.csv",
-                mime="text/csv"
-            )
-
-            
-            
+            with st.expander("View Raw History Data"):
+                st.dataframe(df_hist)
+                
+            if st.button("Clear History"):
+                os.remove(HISTORY_FILE)
+                st.success("History cleared. Reloading...")
+                time.sleep(1)
+                st.rerun()
+        else:
+            st.info("No analyses have been logged yet.")
     else:
-        st.warning("Please enter some text to analyze.")
-
-# --- STATS DASHBOARD ---
-
-st.divider()
-st.header("Analysis Stats Dashboard")
-if os.path.exists(HISTORY_FILE):
-    df_hist = pd.read_csv(HISTORY_FILE)
-    total_analyses = len(df_hist)
-    sentiment_counts = df_hist["sentiment"].value_counts().reindex(["positive", "neutral", "negative"], fill_value=0)
-    st.metric("Total Analyses", total_analyses)
-    st.bar_chart(sentiment_counts)
-else:
-    st.info("No analyses have been logged yet.")
-
-
-
+        st.info("No analyses have been logged yet (history file not found).")
