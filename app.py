@@ -275,7 +275,7 @@ def perform_analysis(text, expand_abbrev=True, handle_emoji=True):
 # --- 3. STREAMLIT UI LAYOUT ---
 
 st.title("SocioSentiment: Social Issue Analyzer 🧠")
-st.markdown("Analyze the **Sentiment** and **Emotion** of text using pre-trained AI models.")
+st.markdown("Analyze the **Sentiment** and **Emotion** of text.")
 
 # --- Sidebar News Section ---
 st.sidebar.subheader("📰 Latest News on Social Issues")
@@ -289,23 +289,29 @@ if articles:
 tab_single, tab_batch, tab_dash = st.tabs(["📝 Single Analysis", "📂 Batch Analysis", "📊 Dashboard"])
 
 with tab_single:
-    st.subheader("Analyze Single Text")
+    st.subheader("📝 Analyze Single Text")
+    st.caption("Supported Languages: Hindi, Hinglish, Arabic, French, German, Italian, Portuguese, Spanish")
+
     user_input = st.text_area(
         "Enter a sentence about a social issue:",
         value=selected_title if selected_title else "",
         height=100,
-        placeholder="e.g., I am worried about climate change, but hopeful for the future.\\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।"
+        placeholder="e.g., I am worried about climate change.\nया हिंदी में: मुझे जलवायु परिवर्तन की चिंता है।"
     )
-    
+
     with st.expander("⚙️ Advanced Options"):
+        st.markdown("Customize preprocessing before analysis:")
         expand_abbrev_single = st.checkbox("Expand abbreviations (u→you, govt→government)", value=True, key="ea_single")
         handle_emoji_single = st.checkbox("Convert emojis to text", value=True, key="he_single")
 
     if st.button("Analyze Text", type="primary"):
         if user_input.strip():
             with st.spinner('Analyzing...'):
-                result = perform_analysis(user_input, expand_abbrev=expand_abbrev_single, handle_emoji=handle_emoji_single)
-                
+                result = perform_analysis(
+                    user_input,
+                    expand_abbrev=expand_abbrev_single,
+                    handle_emoji=handle_emoji_single
+                )
                 log_analysis(result["sentiment"])
                 
                 # Language Info
