@@ -36,6 +36,11 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Streamlit Secrets
+.streamlit/secrets.toml
+.env
+*.env
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

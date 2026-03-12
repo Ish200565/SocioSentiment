@@ -31,7 +31,11 @@ import datetime
 # Must be the first Streamlit command
 st.set_page_config(page_title="SocioSentiment", layout="wide")
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+# Load NEWS_API_KEY from environment or Streamlit secrets
+try:
+    NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
+except (KeyError, FileNotFoundError):
+    NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 # --- 1. SETUP & MODEL LOADING ---
 @st.cache_resource
