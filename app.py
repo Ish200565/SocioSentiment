@@ -345,12 +345,12 @@ with tab_single:
                 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
                 sent_df = pd.DataFrame({'Label': result['sentiment_labels'], 'Score': result['sentiment_probs']})
-                sns.barplot(x='Label', y='Score', data=sent_df, ax=ax1, palette="viridis")
+                sns.barplot(x='Label', y='Score', data=sent_df, ax=ax1, palette="viridis", hue='Label', legend=False)
                 ax1.set_title("Sentiment Probabilities")
                 ax1.set_ylim(0, 1)
 
                 emo_df = pd.DataFrame({'Label': result['emotion_labels'], 'Score': result['emotion_probs']})
-                sns.barplot(x='Label', y='Score', data=emo_df, ax=ax2, palette="magma")
+                sns.barplot(x='Label', y='Score', data=emo_df, ax=ax2, palette="magma", hue='Label', legend=False)
                 ax2.set_title("Emotion Probabilities")
                 ax2.set_ylim(0, 1)
                 ax2.tick_params(axis='x', rotation=45) 
@@ -366,7 +366,7 @@ with tab_single:
                     "Confidence (%)": [result['sentiment_conf'], result['emotion_conf']],
                     "Model Used": [result['model_used_sent'], "j-hartmann/emotion-english-distilroberta-base"]
                 }
-                st.dataframe(pd.DataFrame(summary_data).style.applymap(highlight_confidence, subset=["Confidence (%)"]))
+                st.dataframe(pd.DataFrame(summary_data).style.map(highlight_confidence, subset=["Confidence (%)"]))
                 
                 with st.expander("🔧 Technical Details"):
                     st.write(f"**Cleaned Input:** {result['text_cleaned']}")
@@ -511,7 +511,8 @@ with tab_dash:
             st.metric("Total Overall Analyses Logged", total_analyses)
             
             fig_hist, ax_hist = plt.subplots(figsize=(8, 4))
-            sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values, ax=ax_hist, palette=["#2ecc71", "#95a5a6", "#e74c3c"])
+            sentiment_df = pd.DataFrame({'Sentiment': sentiment_counts.index, 'Count': sentiment_counts.values})
+            sns.barplot(x='Sentiment', y='Count', data=sentiment_df, ax=ax_hist, palette=["#2ecc71", "#95a5a6", "#e74c3c"], hue='Sentiment', legend=False)
             ax_hist.set_title("Historical Sentiment Distribution")
             ax_hist.set_ylabel("Count")
             st.pyplot(fig_hist)
